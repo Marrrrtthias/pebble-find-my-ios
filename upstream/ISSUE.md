@@ -27,13 +27,10 @@ normal `AVAudioPlayer` path never posts anything.
 
 ## Suggested change
 
-Post a plain, silent notification with the same title and body as Android when the audio player
-starts, and remove it in `cleanUp()` together with the critical one. This is about 20 lines in
-`PhoneSoundPlayer.ios.kt`; a patch is attached.
-
-Possible follow-up: a "Stop" notification action, as on Android. This needs a category and
-routing the action from `IOSDelegate.userNotificationCenterDidReceiveResponse` to the plugin, so
-I left it out of the minimal change.
+Post a plain, silent notification with the same title, body and Stop action as Android when the
+audio player starts, and remove it in `cleanUp()` together with the critical one. As on Android,
+tapping Stop or dismissing the notification stops ringing. That's about 60 lines in
+`PhoneSoundPlayer.ios.kt` and `IOSDelegate.kt`; a patch is attached.
 
 ## Environment
 
