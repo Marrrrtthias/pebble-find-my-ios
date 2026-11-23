@@ -1,0 +1,29 @@
+{
+  "name": "find-phone",
+  "author": "Find Phone",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Find Phone",
+    "uuid": "432f5ce1-4a53-446d-8aa2-c63ba3725cf9",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": ["emery"],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": ["cmd", "ok", "ringing", "text"],
+    "usesPermissions": [
+      {
+        "name": "FindMyPhone",
+        "reason": "To ring your phone when you press SELECT",
+        "required": true
+      }
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
