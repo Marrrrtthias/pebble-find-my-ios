@@ -1,0 +1,98 @@
+name: Publish to Pebble app store
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish (for example, v2.3.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-store-${{ github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  PEBBLE_TOOL_VERSION: "5.1.2"
+  RELEASE_TAG: ${{ github.event.workflow_run.head_branch || inputs.tag }}
+
+jobs:
+  publish:
+    # workflow_run uses the default branch's ref for OIDC, regardless of the
+    # release tag checked out below. Manual retries must use main as well.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        startsWith(github.event.workflow_run.head_branch, 'v')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate release tag
+        run: |
+          git check-ref-format "refs/tags/${RELEASE_TAG}"
+          if [[ "${RELEASE_TAG}" != v* ]]; then
+            echo "Expected a v-prefixed release tag" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Verify release commit
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -n "${EXPECTED_SHA}" ] && [ "$(git rev-parse HEAD)" != "${EXPECTED_SHA}" ]; then
+            echo "Release tag no longer matches the triggering workflow's commit" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check release version and changelog
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "${RELEASE_TAG}" != "v${version}" ]; then
+            echo "Release tag does not match package.json version ${version}" >&2
+            exit 1
+          fi
+          node .github/scripts/release-notes.js > /dev/null
+
+      - name: Download released .pbw
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${RELEASE_TAG}" --pattern '*.pbw' --dir dist
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install pebble-tool
+        run: |
+          uv tool install --python 3.13 "pebble-tool==${PEBBLE_TOOL_VERSION}"
+          mkdir -p ~/.local/share/pebble-sdk/oauth_firebase
+
+      - name: Publish app update
+        run: |
+          pbws=(dist/*.pbw)
+          if [ "${#pbws[@]}" -ne 1 ] || [ ! -f "${pbws[0]}" ]; then
+            echo "Expected exactly one released .pbw" >&2
+            exit 1
+          fi
+          release_notes="$(node .github/scripts/release-notes.js)"
+          pebble publish --non-interactive --is-published \
+            --pbw "${pbws[0]}" \
+            --release-notes "${release_notes}"
