@@ -1,4 +1,4 @@
-From 31ec753f792a41f93a55b88a47e35af5ae44c118 Mon Sep 17 00:00:00 2001
+From 0fbc192dc07798cc2690678efcb8743d6c8743f3 Mon Sep 17 00:00:00 2001
 From: Matthias Gellrich <8877295+Marrrrtthias@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 23:04:27 +0000
 Subject: [PATCH] iOS: post a notification with Stop while Find My Phone is
@@ -45,7 +45,7 @@ index ab55c52..8227886 100644
  
          val permissionAnswer = handlePermissionNotificationResponse(get(), response.actionIdentifier, userInfo) {
 diff --git a/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt b/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt
-index 2e63147..c9879ab 100644
+index 2e63147..29ae38e 100644
 --- a/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt
 +++ b/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt
 @@ -1,6 +1,7 @@
@@ -74,33 +74,34 @@ index 2e63147..c9879ab 100644
  // System alarm sound, used unless the app bundles its own find_my_phone.caf.
  private const val SYSTEM_ALARM_SOUND = "/System/Library/Audio/UISounds/alarm.caf"
  private const val CRITICAL_NOTIFICATION_ID = "find_my_phone_critical"
-+private const val RINGING_NOTIFICATION_ID = "find_my_phone_ringing"
-+private const val RINGING_CATEGORY_ID = "find_my_phone_ringing"
++private const val CATEGORY_ID = "find_my_phone"
++private const val NOTIFICATION_ID = "find_my_phone_ringing"
 +private const val ACTION_STOP_RINGING = "find_my_phone_stop"
  
  // Below this system output volume the AVAudioPlayer is too quiet to find the phone by, so we ask
  // for a critical alert instead. Heuristic threshold, tune against real devices.
-@@ -126,12 +135,42 @@ internal actual class PhoneSoundPlayer {
+@@ -126,6 +135,7 @@ internal actual class PhoneSoundPlayer {
                  play()
              }
              _isRinging.value = true
-+            postRingingNotification()
++            showStopNotification()
          } catch (e: Exception) {
              logger.w(e) { "Failed to start ringing" }
              cleanUp()
-         }
+@@ -137,6 +147,35 @@ internal actual class PhoneSoundPlayer {
+         cleanUp()
      }
  
 +    // Silent: the alarm is already playing.
-+    private fun postRingingNotification() {
++    private fun showStopNotification() {
 +        val center = UNUserNotificationCenter.currentNotificationCenter()
 +        // The category must be registered before the notification is posted, or it shows no Stop.
 +        center.getNotificationCategoriesWithCompletionHandler { categories ->
 +            val others = (categories as Set<*>? ?: emptySet<Any>())
-+                .filterNot { (it as? UNNotificationCategory)?.identifier == RINGING_CATEGORY_ID }
++                .filterNot { (it as? UNNotificationCategory)?.identifier == CATEGORY_ID }
 +                .toSet()
 +            val category = UNNotificationCategory.categoryWithIdentifier(
-+                RINGING_CATEGORY_ID,
++                CATEGORY_ID,
 +                listOf(UNNotificationAction.actionWithIdentifier(ACTION_STOP_RINGING, "Stop", 0u)),
 +                emptyList<String>(),
 +                UNNotificationCategoryOptionCustomDismissAction,
@@ -111,24 +112,24 @@ index 2e63147..c9879ab 100644
 +            val content = UNMutableNotificationContent().apply {
 +                setTitle("Finding your phone")
 +                setBody("Ringing from your watch")
-+                setCategoryIdentifier(RINGING_CATEGORY_ID)
++                setCategoryIdentifier(CATEGORY_ID)
 +            }
-+            val request = UNNotificationRequest.requestWithIdentifier(RINGING_NOTIFICATION_ID, content, null)
++            val request = UNNotificationRequest.requestWithIdentifier(NOTIFICATION_ID, content, null)
 +            center.addNotificationRequest(request) { error ->
 +                if (error != null) logger.w { "Failed to post ringing notification: $error" }
 +            }
 +        }
 +    }
 +
-     actual fun stopRinging() {
-         if (!_isRinging.value) return
-         cleanUp()
+     private fun cleanUp() {
+         player?.stop()
+         player = null
 @@ -145,7 +184,21 @@ internal actual class PhoneSoundPlayer {
              AVAudioSession.sharedInstance().setActive(false, error = err.ptr)
          }
          UNUserNotificationCenter.currentNotificationCenter()
 -            .removeDeliveredNotificationsWithIdentifiers(listOf(CRITICAL_NOTIFICATION_ID))
-+            .removeDeliveredNotificationsWithIdentifiers(listOf(CRITICAL_NOTIFICATION_ID, RINGING_NOTIFICATION_ID))
++            .removeDeliveredNotificationsWithIdentifiers(listOf(CRITICAL_NOTIFICATION_ID, NOTIFICATION_ID))
          _isRinging.value = false
      }
  }
@@ -138,7 +139,7 @@ index 2e63147..c9879ab 100644
 + * dismissed, as on Android. Returns false if [response] is for another notification.
 + */
 +public fun handleFindMyPhoneNotificationResponse(response: UNNotificationResponse): Boolean {
-+    if (response.notification.request.identifier != RINGING_NOTIFICATION_ID) return false
++    if (response.notification.request.identifier != NOTIFICATION_ID) return false
 +    if (response.actionIdentifier == ACTION_STOP_RINGING ||
 +        response.actionIdentifier == UNNotificationDismissActionIdentifier
 +    ) {
