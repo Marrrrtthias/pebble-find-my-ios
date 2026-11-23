@@ -5,6 +5,8 @@
 
 // How long to wait for PebbleKit JS to answer before showing an error.
 #define REPLY_TIMEOUT_MS 15000
+// The plugin stops ringing by itself after 60 s (FindMyPhonePlugin RING_TIMEOUT).
+#define RING_TIMEOUT_MS 60000
 
 static Window *s_window;
 static TextLayer *s_title_layer;
@@ -14,6 +16,7 @@ static TextLayer *s_msg_layer;
 static bool s_ringing;            // Last state reported by the phone
 static bool s_waiting;            // A command is in flight
 static AppTimer *s_reply_timer;
+static AppTimer *s_ring_timer;    // Clears s_ringing when the plugin's own timeout hits
 static char s_msg[128];
 
 static void show_message(const char *text) {
@@ -27,6 +30,21 @@ static void show_idle_hint(void) {
 
 static void update_connection(bool connected) {
   text_layer_set_text(s_conn_layer, connected ? "Phone: connected" : "Phone: NOT connected");
+}
+
+static void ring_timeout(void *data) {
+  s_ring_timer = NULL;
+  s_ringing = false;
+  if (!s_waiting) show_idle_hint();
+}
+
+static void set_ringing(bool ringing) {
+  s_ringing = ringing;
+  if (s_ring_timer) {
+    app_timer_cancel(s_ring_timer);
+    s_ring_timer = NULL;
+  }
+  if (ringing) s_ring_timer = app_timer_register(RING_TIMEOUT_MS, ring_timeout, NULL);
 }
 
 static void stop_waiting(void) {
@@ -51,14 +69,8 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *ringing = dict_find(iter, MESSAGE_KEY_ringing);
   Tuple *text = dict_find(iter, MESSAGE_KEY_text);
 
-  if (ringing) {
-    s_ringing = ringing->value->int32 != 0;
-  }
-  if (!ok) {
-    // State-only update (e.g. JS just started): refresh the hint unless busy.
-    if (!s_waiting) show_idle_hint();
-    return;
-  }
+  if (!ok) return;
+  if (ringing) set_ringing(ringing->value->int32 != 0);
 
   stop_waiting();
   if (ok->value->int32) {
