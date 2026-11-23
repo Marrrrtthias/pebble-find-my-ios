@@ -1,0 +1,68 @@
+From 340c9ff408751b8b20c770b385ad932690df431e Mon Sep 17 00:00:00 2001
+From: Find Phone <noreply@example.invalid>
+Date: Mon, 23 Nov 2026 22:53:28 +0000
+Subject: [PATCH] iOS: post a notification while Find My Phone is ringing
+
+Android already shows "Finding your phone" while the find-my-phone
+plugin rings; iOS only posts a notification on the critical-alert path,
+which never runs without the critical-alerts entitlement. Post a plain
+notification with the same title and body while the alarm plays, and
+remove it when ringing stops.
+---
+ .../plugin/PhoneSoundPlayer.ios.kt            | 20 ++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt b/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt
+index 2e63147..ac4ac24 100644
+--- a/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt
++++ b/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/plugin/PhoneSoundPlayer.ios.kt
+@@ -27,6 +27,7 @@ import platform.UserNotifications.UNUserNotificationCenter
+ // System alarm sound, used unless the app bundles its own find_my_phone.caf.
+ private const val SYSTEM_ALARM_SOUND = "/System/Library/Audio/UISounds/alarm.caf"
+ private const val CRITICAL_NOTIFICATION_ID = "find_my_phone_critical"
++private const val RINGING_NOTIFICATION_ID = "find_my_phone_ringing"
+ 
+ // Below this system output volume the AVAudioPlayer is too quiet to find the phone by, so we ask
+ // for a critical alert instead. Heuristic threshold, tune against real devices.
+@@ -126,12 +127,29 @@ internal actual class PhoneSoundPlayer {
+                 play()
+             }
+             _isRinging.value = true
++            postRingingNotification()
+         } catch (e: Exception) {
+             logger.w(e) { "Failed to start ringing" }
+             cleanUp()
+         }
+     }
+ 
++    /**
++     * A plain (non-critical) notification while the alarm sound plays, like the Android
++     * notification: it tells the user why the phone is ringing, and lets automations (e.g. a
++     * Shortcuts "notification received" trigger) react to it. Silent: the alarm is already playing.
++     */
++    private fun postRingingNotification() {
++        val content = UNMutableNotificationContent().apply {
++            setTitle("Finding your phone")
++            setBody("Ringing from your watch")
++        }
++        val request = UNNotificationRequest.requestWithIdentifier(RINGING_NOTIFICATION_ID, content, null)
++        UNUserNotificationCenter.currentNotificationCenter().addNotificationRequest(request) { error ->
++            if (error != null) logger.w { "Failed to post ringing notification: $error" }
++        }
++    }
++
+     actual fun stopRinging() {
+         if (!_isRinging.value) return
+         cleanUp()
+@@ -145,7 +163,7 @@ internal actual class PhoneSoundPlayer {
+             AVAudioSession.sharedInstance().setActive(false, error = err.ptr)
+         }
+         UNUserNotificationCenter.currentNotificationCenter()
+-            .removeDeliveredNotificationsWithIdentifiers(listOf(CRITICAL_NOTIFICATION_ID))
++            .removeDeliveredNotificationsWithIdentifiers(listOf(CRITICAL_NOTIFICATION_ID, RINGING_NOTIFICATION_ID))
+         _isRinging.value = false
+     }
+ }
+-- 
+2.43.0
+
