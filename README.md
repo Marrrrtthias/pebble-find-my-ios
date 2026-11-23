@@ -66,6 +66,22 @@ pebble logs --phone <PHONE_IP>   # shows each invokeAction call and its result
 pebble install --emulator emery
 ```
 
+## CI and releases
+
+CI (`.github/workflows/ci.yml`) runs `npm test` and `pebble build` on every push to `main` and
+on pull requests. The built `.pbw` is attached to the run as an artifact (the file itself, not a
+zip).
+
+A GitHub release with the built `.pbw` is created automatically when a `v*` tag is pushed (see
+`.github/workflows/release.yml`). The tag must match the version in `package.json`
+(`v1.0.0` <-> `1.0.0`). Once that succeeds, `.github/workflows/publish-store.yml` downloads the
+released `.pbw` and publishes it to the Pebble app store. It can also be started by hand for an
+existing tag. Existing store screenshots and listing metadata are left unchanged.
+
+Store release notes come from the `## Version <version>` section in
+[`store/CHANGELOG.md`](store/CHANGELOG.md) matching `package.json`. A missing, duplicate or empty
+section fails the release before building.
+
 ## Error messages shown on the watch
 
 | Shown | Meaning |
